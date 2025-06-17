@@ -1,9 +1,12 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { SearchHeader } from '@/components/SearchHeader';
 import { LessonViewer } from '@/components/LessonViewer';
 import { ProgressTracker } from '@/components/ProgressTracker';
 import { WelcomeScreen } from '@/components/WelcomeScreen';
+import { APIKeyInput } from '@/components/APIKeyInput';
+import { AILearningService } from '@/components/AIService';
+import { useToast } from '@/hooks/use-toast';
 
 export interface LessonStep {
   id: string;
@@ -27,68 +30,83 @@ const Index = () => {
   const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
+  const [apiKey, setApiKey] = useState<string>('');
+  const [aiService, setAiService] = useState<AILearningService | null>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    // Check for stored API key
+    const storedKey = localStorage.getItem('ai_api_key');
+    if (storedKey) {
+      setApiKey(storedKey);
+      setAiService(new AILearningService(storedKey));
+    }
+  }, []);
+
+  const handleApiKeySet = (key: string) => {
+    setApiKey(key);
+    setAiService(new AILearningService(key));
+    toast({
+      title: "API Key Set!",
+      description: "AI-powered learning is now enabled.",
+    });
+  };
 
   const handleSearch = async (topic: string) => {
+    if (!aiService) {
+      toast({
+        title: "API Key Required",
+        description: "Please set your AI API key first to generate lessons.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
     
-    // Simulate AI processing time
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Mock AI-generated lesson
-    const mockLesson: Lesson = {
-      id: `lesson-${Date.now()}`,
-      topic,
-      title: `Complete Guide to ${topic}`,
-      description: `Master ${topic} with this comprehensive step-by-step guide tailored just for you.`,
-      difficulty: 'beginner',
-      estimatedTime: '15-20 minutes',
-      steps: [
-        {
-          id: 'step-1',
-          title: `What is ${topic}?`,
-          content: `${topic} is a fundamental concept that we'll explore together. Let's start with the basics and build your understanding step by step.`,
-          keyPoints: [
-            `Core definition of ${topic}`,
-            'Why it matters in today\'s world',
-            'Real-world applications'
-          ]
-        },
-        {
-          id: 'step-2',
-          title: 'Key Concepts',
-          content: `Now that you understand what ${topic} is, let's dive into the essential concepts you need to know.`,
-          keyPoints: [
-            'Fundamental principles',
-            'Common terminology',
-            'How different parts connect'
-          ]
-        },
-        {
-          id: 'step-3',
-          title: 'Practical Examples',
-          content: `Let's see ${topic} in action with real examples that you can relate to.`,
-          examples: [
-            `Example 1: Basic ${topic} application`,
-            `Example 2: Advanced ${topic} use case`,
-            `Example 3: Creative ${topic} implementation`
-          ]
-        },
-        {
-          id: 'step-4',
-          title: 'Practice & Next Steps',
-          content: `Great job! You've learned the fundamentals of ${topic}. Here's how to continue your learning journey.`,
-          keyPoints: [
-            'Practice exercises you can try',
-            'Additional resources to explore',
-            'Next topics to learn'
-          ]
-        }
-      ]
-    };
-    
-    setCurrentLesson(mockLesson);
-    setCurrentStep(0);
-    setIsLoading(false);
+    try {
+      console.log('Generating AI lesson for:', topic);
+      
+      const aiResponse = await aiService.generateLesson({
+        topic,
+        difficulty: 'beginner'
+      });
+
+      // Convert AI response to our lesson format
+      const lesson: Lesson = {
+        id: `lesson-${Date.now()}`,
+        topic,
+        title: aiResponse.title,
+        description: aiResponse.description,
+        difficulty: aiResponse.difficulty,
+        estimatedTime: aiResponse.estimatedTime,
+        steps: aiResponse.steps.map((step, index) => ({
+          id: `step-${index + 1}`,
+          title: step.title,
+          content: step.content,
+          keyPoints: step.keyPoints,
+          examples: step.examples
+        }))
+      };
+      
+      setCurrentLesson(lesson);
+      setCurrentStep(0);
+      
+      toast({
+        title: "Lesson Generated!",
+        description: `Your AI-powered lesson on "${topic}" is ready.`,
+      });
+      
+    } catch (error) {
+      console.error('Error generating lesson:', error);
+      toast({
+        title: "Generation Failed",
+        description: "Failed to generate lesson. Please check your API key and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleStepChange = (stepIndex: number) => {
@@ -100,6 +118,8 @@ const Index = () => {
     setCurrentStep(0);
   };
 
+  const showApiKeyInput = !apiKey && !currentLesson && !isLoading;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100">
       <div className="container mx-auto px-4 py-6">
@@ -109,13 +129,20 @@ const Index = () => {
           onNewSearch={currentLesson ? handleNewSearch : undefined}
         />
         
-        {!currentLesson && !isLoading && <WelcomeScreen />}
+        {showApiKeyInput && (
+          <div className="mt-8">
+            <APIKeyInput onApiKeySet={handleApiKeySet} isVisible={true} />
+          </div>
+        )}
+        
+        {!currentLesson && !isLoading && apiKey && <WelcomeScreen />}
         
         {isLoading && (
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-              <p className="text-lg text-gray-600">AI is searching and preparing your personalized lesson...</p>
+              <p className="text-lg text-gray-600">AI is analyzing your topic and creating a personalized lesson...</p>
+              <p className="text-sm text-gray-500 mt-2">This may take 10-30 seconds</p>
             </div>
           </div>
         )}
